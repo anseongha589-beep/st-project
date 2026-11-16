@@ -17,12 +17,12 @@ st.set_page_config(
 
 st.title("💪 운동 시간은 많을수록 정말 좋은가?")
 st.markdown(
-    "운동 일수에 따라 청소년의 근육량 추정 지표가 어떻게 달라지는지 비교합니다."
+    "운동 일수에 따라 청소년의 근육량 추정 지표가 어떻게 달라지는지 분석합니다."
 )
 
 st.info(
-    "남녀를 구분하지 않고 13~17세 전체 데이터를 분석합니다. "
-    "CDC NHANES 2017~2018 실제 조사 자료를 사용합니다."
+    "CDC NHANES 2017~2018 실제 조사 자료를 사용합니다. "
+    "남녀를 구분하지 않고 13~17세 전체 데이터를 분석합니다."
 )
 
 # -------------------------------------
@@ -42,7 +42,7 @@ FILES = {
 
 
 # -------------------------------------
-# XPT 데이터 다운로드
+# 데이터 다운로드
 # -------------------------------------
 
 @st.cache_data
@@ -72,12 +72,8 @@ def load_data():
     body = download_xpt(FILES["DXX_J"])
     demo = download_xpt(FILES["DEMO_J"])
 
-    # 운동 일수
-    activity = activity[
-        ["SEQN", "PAQ706"]
-    ]
+    activity = activity[["SEQN", "PAQ706"]]
 
-    # 팔과 다리의 제지방량
     body = body[
         [
             "SEQN",
@@ -88,12 +84,9 @@ def load_data():
         ]
     ]
 
-    # 나이
-    demo = demo[
-        ["SEQN", "RIDAGEYR"]
-    ]
+    demo = demo[["SEQN", "RIDAGEYR"]]
 
-    # 개인 식별번호로 데이터 결합
+    # 개인 식별번호로 결합
     data = activity.merge(
         body,
         on="SEQN",
@@ -122,13 +115,13 @@ def load_data():
             errors="coerce"
         )
 
-    # 13~17세 청소년만 선택
+    # 13~17세 청소년
     data = data[
         (data["RIDAGEYR"] >= 13) &
         (data["RIDAGEYR"] <= 17)
     ].copy()
 
-    # 운동 일수와 네 부위의 측정값이 모두 있는 사람
+    # 결측값 제거
     data = data.dropna(
         subset=[
             "PAQ706",
@@ -144,19 +137,13 @@ def load_data():
         data["PAQ706"].between(0, 7)
     ].copy()
 
-    # 네 부위의 제지방량 합산
-    # 단위: g
-    data["사지 제지방량(g)"] = (
+    # 팔과 다리 네 부위의 제지방량 합산
+    data["근육량 추정 지표(kg)"] = (
         data["DXDLALE"] +
         data["DXDRALE"] +
         data["DXDLLLE"] +
         data["DXDRLLE"]
-    )
-
-    # g -> kg
-    data["근육량 추정 지표(kg)"] = (
-        data["사지 제지방량(g)"] / 1000
-    )
+    ) / 1000
 
     # 운동 그룹 분류
     def classify(days):
@@ -263,32 +250,22 @@ st.dataframe(
 
 
 # -------------------------------------
-# 3. 운동 적은 그룹 vs 운동 많은 그룹
+# 3. 운동 적은 그룹과 많은 그룹 비교
 # -------------------------------------
 
 st.subheader("3. 운동을 적게 한 사람과 많이 한 사람 비교")
 
-low = df[
-    df["PAQ706"].between(0, 1)
-]
-
-high = df[
-    df["PAQ706"].between(6, 7)
-]
+low = df[df["PAQ706"].between(0, 1)]
+high = df[df["PAQ706"].between(6, 7)]
 
 if len(low) == 0 or len(high) == 0:
 
-    st.warning(
-        "두 그룹 중 데이터가 부족한 그룹이 있습니다."
-    )
+    st.warning("두 그룹 중 데이터가 부족한 그룹이 있습니다.")
 
 else:
 
     low_mean = low["근육량 추정 지표(kg)"].mean()
     high_mean = high["근육량 추정 지표(kg)"].mean()
-
-    low_median = low["근육량 추정 지표(kg)"].median()
-    high_median = high["근육량 추정 지표(kg)"].median()
 
     difference = high_mean - low_mean
 
@@ -304,14 +281,9 @@ else:
         "평균 근육량 추정 지표(kg)": [
             low_mean,
             high_mean
-        ],
-        "중앙값(kg)": [
-            low_median,
-            high_median
         ]
     })
 
-    # 그룹별 색상
     def color_group(row):
 
         if "적게" in row["운동 그룹"]:
@@ -323,25 +295,16 @@ else:
             "background-color: #DBEAFE; color: #1D4ED8"
         ] * len(row)
 
-    styled_table = (
+    styled_comparison = (
         comparison.style
         .apply(color_group, axis=1)
         .format({
-            "평균 근육량 추정 지표(kg)": "{:.2f}",
-            "중앙값(kg)": "{:.2f}"
+            "평균 근육량 추정 지표(kg)": "{:.2f}"
         })
     )
 
-    st.markdown(
-        """
-        🔴 **빨간색: 운동을 적게 한 그룹 (0~1일)**
-
-        🔵 **파란색: 운동을 많이 한 그룹 (6~7일)**
-        """
-    )
-
     st.dataframe(
-        styled_table,
+        styled_comparison,
         use_container_width=True,
         hide_index=True
     )
@@ -350,14 +313,12 @@ else:
 
     c1.metric(
         "운동 적은 그룹 평균",
-        f"{low_mean:.2f}kg",
-        f"{len(low):,}명"
+        f"{low_mean:.2f}kg"
     )
 
     c2.metric(
         "운동 많은 그룹 평균",
-        f"{high_mean:.2f}kg",
-        f"{len(high):,}명"
+        f"{high_mean:.2f}kg"
     )
 
     c3.metric(
@@ -388,7 +349,6 @@ daily_summary["운동 일수"] = (
 )
 
 
-# 운동 일수별 색상
 def get_bar_color(days):
 
     if days <= 1:
@@ -451,45 +411,61 @@ st.plotly_chart(
     use_container_width=True
 )
 
+
+# -------------------------------------
+# 5. 그래프 아래 운동 일수별 표 추가
+# -------------------------------------
+
+st.subheader("5. 운동 일수별 근육량 추정 지표 표")
+
+table_data = daily_summary[
+    [
+        "운동 일수",
+        "인원수",
+        "평균"
+    ]
+].copy()
+
+table_data = table_data.rename(
+    columns={
+        "인원수": "조사 인원(명)",
+        "평균": "평균 근육량 추정 지표(kg)"
+    }
+)
+
+# 운동 일수에 따라 행 색상 적용
+def color_daily_table(row):
+
+    days = int(row["운동 일수"].replace("일", ""))
+
+    if days <= 1:
+        color = "background-color: #FDE2E2; color: #B91C1C"
+
+    elif days >= 6:
+        color = "background-color: #DBEAFE; color: #1D4ED8"
+
+    else:
+        color = ""
+
+    return [color] * len(row)
+
+
+styled_daily_table = (
+    table_data.style
+    .apply(color_daily_table, axis=1)
+    .format({
+        "평균 근육량 추정 지표(kg)": "{:.2f}"
+    })
+)
+
+st.dataframe(
+    styled_daily_table,
+    use_container_width=True,
+    hide_index=True
+)
+
 st.caption(
-    "빨간색: 0~1일 / 회색: 2~3일 / "
-    "하늘색: 4~5일 / 파란색: 6~7일"
-)
-
-
-# -------------------------------------
-# 5. 운동 일수별 조사 인원
-# -------------------------------------
-
-st.subheader("5. 운동 일수별 조사 인원")
-
-count_fig = px.bar(
-    daily_summary,
-    x="운동 일수",
-    y="인원수",
-    text="인원수",
-    labels={
-        "운동 일수": "일주일 중 하루 60분 이상 운동한 날",
-        "인원수": "인원수(명)"
-    },
-    title="운동 일수별 조사 참여 인원"
-)
-
-count_fig.update_traces(
-    marker_color="#64748B",
-    texttemplate="%{y:,}명",
-    textposition="outside"
-)
-
-count_fig.update_layout(
-    xaxis_title="일주일 중 하루 60분 이상 운동한 날",
-    yaxis_title="인원수(명)",
-    showlegend=False
-)
-
-st.plotly_chart(
-    count_fig,
-    use_container_width=True
+    "빨간색은 운동 0~1일, 파란색은 운동 6~7일을 의미합니다."
 )
 
 
@@ -543,18 +519,16 @@ st.markdown("""
 
 **근육량 추정 지표 계산 방법**
 
-- 오른팔 제지방량: DXDRALE
-- 왼팔 제지방량: DXDLALE
-- 오른다리 제지방량: DXDRLLE
-- 왼다리 제지방량: DXDLLLE
+- 오른팔 제지방량
+- 왼팔 제지방량
+- 오른다리 제지방량
+- 왼다리 제지방량
 
 위 네 부위의 제지방량을 합산한 뒤 kg 단위로 변환했습니다.
 
-이 값은 팔과 다리의 제지방량을 이용한 골격근량 추정 지표입니다.
-DXA가 근육 조직만을 직접 분리해 측정하는 것은 아니므로
-실제 순수 골격근량과 완전히 같지는 않습니다.
+이 값은 팔과 다리의 제지방량을 이용한 근육량 추정 지표이며,
+순수한 골격근량과 완전히 같지는 않습니다.
 
-이번 분석은 남녀를 구분하지 않고 전체 자료를 합쳐 계산했습니다.
-나이와 성별 등 다른 요인도 결과에 영향을 줄 수 있으므로
-운동 일수와 근육량 추정 지표 사이의 관계를 관찰하는 분석으로 해석해야 합니다.
+남녀를 구분하지 않고 전체 자료를 합쳐 계산했으며,
+운동 일수와 근육량 추정 지표 사이의 관계를 관찰하는 분석입니다.
 """)
