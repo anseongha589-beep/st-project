@@ -3,5 +3,6 @@ streamlit
 pandas
 numpy
 requests
+statsmodels
 plotly
 pyreadstat
