@@ -22,7 +22,7 @@ st.markdown(
 
 st.info(
     "CDC NHANES 2017~2018 실제 조사 자료를 사용합니다. "
-    "데이터를 자동으로 내려받아 분석합니다."
+    "남녀를 구분하지 않고 전체 데이터를 분석합니다."
 )
 
 # -------------------------------------
@@ -47,6 +47,7 @@ FILES = {
 
 @st.cache_data
 def download_xpt(url):
+
     response = requests.get(url, timeout=60)
     response.raise_for_status()
 
@@ -73,7 +74,7 @@ def load_data():
 
     activity = activity[["SEQN", "PAQ706"]]
     body = body[["SEQN", "DXDTOLE"]]
-    demo = demo[["SEQN", "RIDAGEYR", "RIAGENDR"]]
+    demo = demo[["SEQN", "RIDAGEYR"]]
 
     # 개인 식별번호를 기준으로 데이터 결합
     data = activity.merge(
@@ -92,8 +93,7 @@ def load_data():
     columns = [
         "PAQ706",
         "DXDTOLE",
-        "RIDAGEYR",
-        "RIAGENDR"
+        "RIDAGEYR"
     ]
 
     for column in columns:
@@ -125,12 +125,16 @@ def load_data():
 
     # 운동 그룹 분류
     def classify(days):
+
         if days <= 1:
             return "운동 적은 그룹 (0~1일)"
+
         elif days <= 3:
             return "운동 중간 그룹 (2~3일)"
+
         elif days <= 5:
             return "운동 많은 그룹 (4~5일)"
+
         else:
             return "운동 매우 많은 그룹 (6~7일)"
 
@@ -178,7 +182,7 @@ col3.metric(
 )
 
 st.caption(
-    "운동량과 체성분 자료가 모두 확인되는 13~17세 청소년을 대상으로 합니다."
+    "13~17세 남녀 전체 중 운동량과 체성분 자료가 모두 확인되는 사람을 분석합니다."
 )
 
 
@@ -308,7 +312,6 @@ else:
         hide_index=True
     )
 
-    # 평균 차이
     c1, c2, c3 = st.columns(3)
 
     c1.metric(
@@ -330,32 +333,83 @@ else:
 
 
 # -------------------------------------
-# 4. 운동 그룹별 평균 그래프
+# 4. 운동 일수별 평균 제지방량 막대그래프
 # -------------------------------------
 
-st.subheader("4. 운동 그룹별 평균 제지방량 그래프")
+st.subheader("4. 운동 일수별 평균 제지방량")
+
+# 남녀 구분 없이 운동 일수별 평균 계산
+daily_summary = (
+    df.groupby("PAQ706")
+    .agg(
+        평균_제지방량=("제지방량(kg)", "mean"),
+        인원수=("제지방량(kg)", "count")
+    )
+    .reindex(range(8))
+    .dropna()
+    .reset_index()
+)
+
+daily_summary["운동 일수"] = (
+    daily_summary["PAQ706"].astype(int).astype(str) + "일"
+)
+
+# 운동량에 따른 막대 색상
+def get_bar_color(days):
+
+    if days <= 1:
+        return "#EF4444"
+
+    elif days <= 3:
+        return "#9CA3AF"
+
+    elif days <= 5:
+        return "#7DD3FC"
+
+    else:
+        return "#2563EB"
+
+
+daily_summary["색상"] = daily_summary["PAQ706"].apply(
+    get_bar_color
+)
 
 fig = px.bar(
-    summary,
-    x="운동 그룹",
+    daily_summary,
+    x="운동 일수",
     y="평균_제지방량",
     text="평균_제지방량",
+    custom_data=["인원수"],
     labels={
-        "운동 그룹": "운동 일수 그룹",
+        "운동 일수": "일주일 중 하루 60분 이상 운동한 날",
         "평균_제지방량": "평균 제지방량(kg)"
     },
-    title="운동 일수 그룹별 평균 제지방량"
+    title="운동 일수별 평균 제지방량 비교"
 )
 
 fig.update_traces(
+    marker_color=daily_summary["색상"],
     texttemplate="%{y:.2f}kg",
-    textposition="outside"
+    textposition="outside",
+    hovertemplate=(
+        "운동 일수: %{x}<br>"
+        "평균 제지방량: %{y:.2f}kg<br>"
+        "인원수: %{customdata[0]}명"
+        "<extra></extra>"
+    )
 )
 
 fig.update_layout(
-    xaxis_title="운동 그룹",
+    xaxis_title="일주일 중 하루 60분 이상 운동한 날",
     yaxis_title="평균 제지방량(kg)",
-    showlegend=False
+    showlegend=False,
+    xaxis=dict(
+        categoryorder="array",
+        categoryarray=[
+            "0일", "1일", "2일", "3일",
+            "4일", "5일", "6일", "7일"
+        ]
+    )
 )
 
 st.plotly_chart(
@@ -363,35 +417,44 @@ st.plotly_chart(
     use_container_width=True
 )
 
-
-# -------------------------------------
-# 5. 운동 일수와 제지방량 산점도
-# -------------------------------------
-
-st.subheader("5. 운동 일수와 제지방량의 관계")
-
-scatter = px.scatter(
-    df,
-    x="PAQ706",
-    y="제지방량(kg)",
-    color="운동 그룹",
-    hover_data=["RIDAGEYR"],
-    labels={
-        "PAQ706": "일주일 중 하루 60분 이상 운동한 날",
-        "제지방량(kg)": "제지방량(kg)",
-        "RIDAGEYR": "나이"
-    },
-    title="운동 일수와 제지방량의 관계"
+st.caption(
+    "빨간색: 0~1일 / 회색: 2~3일 / "
+    "하늘색: 4~5일 / 파란색: 6~7일"
 )
 
-scatter.update_layout(
-    xaxis=dict(dtick=1),
+
+# -------------------------------------
+# 5. 운동 일수별 인원수
+# -------------------------------------
+
+st.subheader("5. 운동 일수별 분석 인원")
+
+count_fig = px.bar(
+    daily_summary,
+    x="운동 일수",
+    y="인원수",
+    text="인원수",
+    labels={
+        "운동 일수": "일주일 중 하루 60분 이상 운동한 날",
+        "인원수": "인원수(명)"
+    },
+    title="운동 일수별 조사 참여 인원"
+)
+
+count_fig.update_traces(
+    marker_color="#64748B",
+    texttemplate="%{y:,}명",
+    textposition="outside"
+)
+
+count_fig.update_layout(
     xaxis_title="일주일 중 하루 60분 이상 운동한 날",
-    yaxis_title="제지방량(kg)"
+    yaxis_title="인원수(명)",
+    showlegend=False
 )
 
 st.plotly_chart(
-    scatter,
+    count_fig,
     use_container_width=True
 )
 
@@ -450,7 +513,7 @@ st.markdown("""
 제지방량에는 골격근뿐 아니라 수분과 기타 제지방 조직도 포함되므로
 순수한 근육량과 동일하지 않습니다.
 
-또한 나이와 성별에 따라서도 제지방량은 달라질 수 있습니다.
-따라서 이 분석은 운동량 그룹 간의 관찰된 차이를 보여주는 것이며,
-운동 시간만으로 근육량 차이를 설명할 수는 없습니다.
+이번 분석은 남녀를 따로 구분하지 않고 전체 자료를 합쳐 계산했습니다.
+나이와 성별에 따라서도 제지방량이 달라질 수 있으므로
+운동 시간만으로 제지방량 차이의 원인을 단정할 수는 없습니다.
 """)
