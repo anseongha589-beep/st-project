@@ -2,7 +2,9 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import requests
+import numpy as np
 from io import BytesIO
 
 # -------------------------------------
@@ -21,8 +23,8 @@ st.markdown(
 )
 
 st.info(
-    "CDC NHANES 2017~2018 실제 조사 자료를 사용합니다. "
-    "남녀를 구분하지 않고 13~17세 전체 데이터를 분석합니다."
+    "CDC NHANES 2017~2018 자료를 사용합니다. "
+    "13~17세 남녀 전체 데이터를 함께 분석합니다."
 )
 
 # -------------------------------------
@@ -42,7 +44,7 @@ FILES = {
 
 
 # -------------------------------------
-# 데이터 다운로드
+# XPT 데이터 다운로드
 # -------------------------------------
 
 @st.cache_data
@@ -72,7 +74,9 @@ def load_data():
     body = download_xpt(FILES["DXX_J"])
     demo = download_xpt(FILES["DEMO_J"])
 
-    activity = activity[["SEQN", "PAQ706"]]
+    activity = activity[
+        ["SEQN", "PAQ706"]
+    ]
 
     body = body[
         [
@@ -84,9 +88,11 @@ def load_data():
         ]
     ]
 
-    demo = demo[["SEQN", "RIDAGEYR"]]
+    demo = demo[
+        ["SEQN", "RIDAGEYR"]
+    ]
 
-    # 개인 식별번호로 결합
+    # 개인 식별번호로 자료 결합
     data = activity.merge(
         body,
         on="SEQN",
@@ -99,7 +105,7 @@ def load_data():
         how="inner"
     )
 
-    # 숫자형 변환
+    # 숫자형으로 변환
     numeric_columns = [
         "PAQ706",
         "DXDLALE",
@@ -110,12 +116,13 @@ def load_data():
     ]
 
     for column in numeric_columns:
+
         data[column] = pd.to_numeric(
             data[column],
             errors="coerce"
         )
 
-    # 13~17세 청소년
+    # 13~17세 자료 선택
     data = data[
         (data["RIDAGEYR"] >= 13) &
         (data["RIDAGEYR"] <= 17)
@@ -132,12 +139,13 @@ def load_data():
         ]
     )
 
-    # 유효한 운동 일수
+    # 유효한 운동 일수만 선택
     data = data[
         data["PAQ706"].between(0, 7)
     ].copy()
 
-    # 팔과 다리 네 부위의 제지방량 합산
+    # 팔과 다리 네 부위 제지방량 합산
+    # 단위: kg
     data["근육량 추정 지표(kg)"] = (
         data["DXDLALE"] +
         data["DXDRALE"] +
@@ -175,9 +183,16 @@ with st.spinner("CDC 데이터를 다운로드하고 분석하고 있습니다..
         df = load_data()
 
     except Exception as e:
+
         st.error("데이터를 불러오는 중 오류가 발생했습니다.")
         st.code(str(e))
         st.stop()
+
+
+if len(df) < 5:
+
+    st.error("분석에 필요한 데이터가 충분하지 않습니다.")
+    st.stop()
 
 
 # -------------------------------------
@@ -258,11 +273,7 @@ st.subheader("3. 운동을 적게 한 사람과 많이 한 사람 비교")
 low = df[df["PAQ706"].between(0, 1)]
 high = df[df["PAQ706"].between(6, 7)]
 
-if len(low) == 0 or len(high) == 0:
-
-    st.warning("두 그룹 중 데이터가 부족한 그룹이 있습니다.")
-
-else:
+if len(low) > 0 and len(high) > 0:
 
     low_mean = low["근육량 추정 지표(kg)"].mean()
     high_mean = high["근육량 추정 지표(kg)"].mean()
@@ -287,6 +298,7 @@ else:
     def color_group(row):
 
         if "적게" in row["운동 그룹"]:
+
             return [
                 "background-color: #FDE2E2; color: #B91C1C"
             ] * len(row)
@@ -325,6 +337,10 @@ else:
         "평균 차이",
         f"{difference:+.2f}kg"
     )
+
+else:
+
+    st.warning("비교할 그룹의 자료가 충분하지 않습니다.")
 
 
 # -------------------------------------
@@ -413,7 +429,7 @@ st.plotly_chart(
 
 
 # -------------------------------------
-# 5. 그래프 아래 운동 일수별 표 추가
+# 5. 그래프 아래 표
 # -------------------------------------
 
 st.subheader("5. 운동 일수별 근육량 추정 지표 표")
@@ -433,7 +449,7 @@ table_data = table_data.rename(
     }
 )
 
-# 운동 일수에 따라 행 색상 적용
+
 def color_daily_table(row):
 
     days = int(row["운동 일수"].replace("일", ""))
@@ -470,45 +486,209 @@ st.caption(
 
 
 # -------------------------------------
-# 6. 분석 결과
+# 6. 선형회귀분석
 # -------------------------------------
 
-st.subheader("6. 분석 결과")
+st.subheader("6. 선형회귀분석")
 
-if len(low) > 0 and len(high) > 0:
+st.markdown(
+    """
+    운동 일수를 독립변수(X), 근육량 추정 지표를 종속변수(Y)로 설정합니다.
+    운동 일수와 근육량 추정 지표 사이의 선형적인 관계를 분석합니다.
+    """
+)
 
-    if difference > 0:
+# X: 운동 일수
+# Y: 근육량 추정 지표
+X = df["PAQ706"].to_numpy(dtype=float)
+Y = df["근육량 추정 지표(kg)"].to_numpy(dtype=float)
 
-        st.write(
-            f"운동을 6~7일 한 그룹의 평균 근육량 추정 지표가 "
-            f"0~1일 한 그룹보다 {difference:.2f}kg 높게 나타났습니다."
+# 무작위로 섞어 학습용 80%, 평가용 20% 분할
+rng = np.random.default_rng(42)
+
+indices = rng.permutation(len(df))
+
+split_index = int(len(df) * 0.8)
+
+train_indices = indices[:split_index]
+test_indices = indices[split_index:]
+
+X_train = X[train_indices]
+Y_train = Y[train_indices]
+
+X_test = X[test_indices]
+Y_test = Y[test_indices]
+
+# 선형회귀 모델 학습
+slope, intercept = np.polyfit(
+    X_train,
+    Y_train,
+    1
+)
+
+# 평가 데이터 예측
+Y_pred = slope * X_test + intercept
+
+# 평가 지표 계산
+mae = np.mean(np.abs(Y_test - Y_pred))
+
+rmse = np.sqrt(
+    np.mean((Y_test - Y_pred) ** 2)
+)
+
+# 결정계수 R²
+ss_res = np.sum((Y_test - Y_pred) ** 2)
+ss_tot = np.sum((Y_test - np.mean(Y_test)) ** 2)
+
+if ss_tot != 0:
+    r2 = 1 - (ss_res / ss_tot)
+else:
+    r2 = np.nan
+
+# 전체 데이터의 회귀선
+x_line = np.linspace(
+    X.min(),
+    X.max(),
+    100
+)
+
+y_line = slope * x_line + intercept
+
+# 회귀 그래프
+regression_fig = go.Figure()
+
+regression_fig.add_trace(
+    go.Scatter(
+        x=X,
+        y=Y,
+        mode="markers",
+        name="조사 데이터",
+        marker=dict(
+            color="#60A5FA",
+            opacity=0.55,
+            size=7
+        ),
+        hovertemplate=(
+            "운동 일수: %{x}일<br>"
+            "근육량 추정 지표: %{y:.2f}kg"
+            "<extra></extra>"
         )
+    )
+)
 
-    elif difference < 0:
-
-        st.write(
-            f"운동을 6~7일 한 그룹의 평균 근육량 추정 지표가 "
-            f"0~1일 한 그룹보다 {abs(difference):.2f}kg 낮게 나타났습니다."
+regression_fig.add_trace(
+    go.Scatter(
+        x=x_line,
+        y=y_line,
+        mode="lines",
+        name="선형회귀 직선",
+        line=dict(
+            color="#EF4444",
+            width=3
         )
+    )
+)
 
-    else:
+regression_fig.update_layout(
+    title="운동 일수와 근육량 추정 지표의 회귀분석",
+    xaxis_title="일주일 중 하루 60분 이상 운동한 날",
+    yaxis_title="근육량 추정 지표(kg)",
+    legend_title="그래프 구분"
+)
 
-        st.write(
-            "두 그룹의 평균 근육량 추정 지표는 같습니다."
-        )
+st.plotly_chart(
+    regression_fig,
+    use_container_width=True
+)
 
-    st.caption(
-        "두 그룹의 평균을 비교한 결과이며, 운동이 차이의 직접적인 원인이라는 뜻은 아닙니다."
+# 회귀식
+equation_sign = "+" if intercept >= 0 else "-"
+
+st.markdown("### 회귀분석 결과")
+
+st.code(
+    f"근육량 추정 지표 = {slope:.4f} × 운동 일수 "
+    f"{equation_sign} {abs(intercept):.4f}"
+)
+
+# 결과 지표
+c1, c2, c3 = st.columns(3)
+
+c1.metric(
+    "결정계수 (R²)",
+    f"{r2:.4f}" if not np.isnan(r2) else "계산 불가"
+)
+
+c2.metric(
+    "평균절대오차 (MAE)",
+    f"{mae:.2f}kg"
+)
+
+c3.metric(
+    "평균제곱근오차 (RMSE)",
+    f"{rmse:.2f}kg"
+)
+
+st.markdown("### 회귀분석 해석")
+
+if slope > 0:
+
+    st.write(
+        f"회귀식의 기울기는 {slope:.4f}입니다. "
+        "운동 일수가 하루 증가할 때 근육량 추정 지표가 "
+        "평균적으로 증가하는 방향의 관계가 나타났습니다."
     )
 
+elif slope < 0:
+
+    st.write(
+        f"회귀식의 기울기는 {slope:.4f}입니다. "
+        "운동 일수가 하루 증가할 때 근육량 추정 지표가 "
+        "평균적으로 감소하는 방향의 관계가 나타났습니다."
+    )
+
+else:
+
+    st.write(
+        "회귀식의 기울기가 0에 가까워 "
+        "운동 일수와 근육량 추정 지표 사이의 선형 관계가 거의 나타나지 않았습니다."
+    )
+
+st.caption(
+    "기울기는 학습 데이터로 계산했습니다. "
+    "R², MAE, RMSE는 평가 데이터에서 계산했습니다. "
+    "R²가 낮거나 음수일 수도 있으며, 이는 예측 성능이 낮다는 의미입니다."
+)
+
 
 # -------------------------------------
-# 7. 자료 출처 및 주의사항
+# 7. 분석 결과 및 한계
+# -------------------------------------
+
+st.subheader("7. 분석 결과 및 한계")
+
+st.markdown(
+    """
+    이번 분석에서는 운동 일수와 근육량 추정 지표의 관계를
+    평균 비교와 선형회귀분석으로 확인했습니다.
+
+    회귀분석은 두 변수 사이의 선형적인 관계를 살펴보는 방법입니다.
+    하지만 운동 일수 외에도 나이, 성장 상태, 식습관 등 여러 요인이
+    근육량에 영향을 줄 수 있습니다.
+
+    따라서 이 분석만으로 운동이 근육량 차이의 직접적인 원인이라고
+    단정할 수는 없습니다.
+    """
+)
+
+
+# -------------------------------------
+# 8. 데이터 출처
 # -------------------------------------
 
 st.divider()
 
-st.subheader("자료 출처 및 분석 시 주의사항")
+st.subheader("8. 데이터 출처 및 주의사항")
 
 st.markdown("""
 **자료 출처**
@@ -517,18 +697,17 @@ st.markdown("""
 - 체성분 자료: DXA - Whole Body (DXX_J)
 - 인구통계 자료: Demographics (DEMO_J)
 
-**근육량 추정 지표 계산 방법**
+**사용한 변수**
+- PAQ706: 지난 7일 동안 하루 60분 이상 신체활동을 한 날의 수
+- DXDLALE: 왼팔 제지방량
+- DXDRALE: 오른팔 제지방량
+- DXDLLLE: 왼다리 제지방량
+- DXDRLLE: 오른다리 제지방량
+- RIDAGEYR: 나이
 
-- 오른팔 제지방량
-- 왼팔 제지방량
-- 오른다리 제지방량
-- 왼다리 제지방량
+**근육량 추정 지표 계산**
+팔과 다리 네 부위의 제지방량을 합산한 뒤 kg 단위로 변환했습니다.
 
-위 네 부위의 제지방량을 합산한 뒤 kg 단위로 변환했습니다.
-
-이 값은 팔과 다리의 제지방량을 이용한 근육량 추정 지표이며,
-순수한 골격근량과 완전히 같지는 않습니다.
-
-남녀를 구분하지 않고 전체 자료를 합쳐 계산했으며,
-운동 일수와 근육량 추정 지표 사이의 관계를 관찰하는 분석입니다.
+이 값은 근육량을 추정하기 위한 지표이며 순수 골격근량과 완전히 같지는 않습니다.
+또한 이번 분석은 남녀를 구분하지 않고 전체 자료를 합쳐 계산했습니다.
 """)
