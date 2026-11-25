@@ -441,6 +441,7 @@ summary = (
     .reset_index()
 )
 
+# 인원수를 정수로 변환
 summary["인원수"] = summary["인원수"].astype(int)
 
 summary = summary.rename(
@@ -481,6 +482,7 @@ daily_summary = (
     .reset_index()
 )
 
+# 인원수를 정수로 변환
 daily_summary["인원수"] = daily_summary["인원수"].astype(int)
 daily_summary["운동 일수"] = (
     daily_summary["PAQ706"].astype(int).astype(str) + "일"
@@ -774,7 +776,7 @@ st.dataframe(
 
 
 # =====================================
-# 13. 선형회귀분석 (보기 쉽게 개선)
+# 13. 선형회귀분석
 # =====================================
 
 st.header("8. 선형회귀분석")
@@ -782,7 +784,7 @@ st.header("8. 선형회귀분석")
 st.write(
     "운동 일수를 독립변수(X), 근육량 추정 지표를 "
     "종속변수(Y)로 설정했습니다. 점 하나는 학생 1명이며, "
-    "초록색 점선은 전체 추세선입니다."
+    "검은색 실선은 전체 추세선입니다."
 )
 
 X = df["PAQ706"].to_numpy(dtype=float)
