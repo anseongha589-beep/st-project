@@ -24,7 +24,7 @@ st.markdown(
 
 st.info(
     "CDC NHANES 2017~2018 자료를 사용합니다. "
-    "13~17세 남녀 전체 데이터를 함께 분석합니다."
+    "분석 대상은 13~17세이며 남녀를 구분하지 않습니다."
 )
 
 # -------------------------------------
@@ -41,6 +41,19 @@ FILES = {
     "DXX_J": BASE_URL + "DXX_J.XPT",
     "DEMO_J": BASE_URL + "DEMO_J.XPT"
 }
+
+DXA_COLUMNS = [
+    "DXDLALE",
+    "DXDRALE",
+    "DXDLLLE",
+    "DXDRLLE"
+]
+
+REQUIRED_COLUMNS = [
+    "PAQ706",
+    "RIDAGEYR",
+    *DXA_COLUMNS
+]
 
 
 # -------------------------------------
@@ -64,96 +77,84 @@ def download_xpt(url):
 
 
 # -------------------------------------
-# 데이터 불러오기 및 결합
+# 데이터 수집 및 전처리
 # -------------------------------------
 
 @st.cache_data
 def load_data():
 
+    # 1. 세 자료 다운로드
     activity = download_xpt(FILES["PAQY_J"])
     body = download_xpt(FILES["DXX_J"])
     demo = download_xpt(FILES["DEMO_J"])
 
+    # 2. 필요한 열만 선택
     activity = activity[
         ["SEQN", "PAQ706"]
     ]
 
     body = body[
-        [
-            "SEQN",
-            "DXDLALE",
-            "DXDRALE",
-            "DXDLLLE",
-            "DXDRLLE"
-        ]
+        ["SEQN"] + DXA_COLUMNS
     ]
 
     demo = demo[
         ["SEQN", "RIDAGEYR"]
     ]
 
-    # 개인 식별번호로 자료 결합
-    data = activity.merge(
+    # 3. 개인 식별번호로 자료 결합
+    merged = activity.merge(
         body,
         on="SEQN",
         how="inner"
     )
 
-    data = data.merge(
+    merged = merged.merge(
         demo,
         on="SEQN",
         how="inner"
     )
 
+    merged_count = len(merged)
+
     # 숫자형으로 변환
-    numeric_columns = [
-        "PAQ706",
-        "DXDLALE",
-        "DXDRALE",
-        "DXDLLLE",
-        "DXDRLLE",
-        "RIDAGEYR"
-    ]
+    for column in REQUIRED_COLUMNS:
 
-    for column in numeric_columns:
-
-        data[column] = pd.to_numeric(
-            data[column],
+        merged[column] = pd.to_numeric(
+            merged[column],
             errors="coerce"
         )
 
-    # 13~17세 자료 선택
-    data = data[
-        (data["RIDAGEYR"] >= 13) &
-        (data["RIDAGEYR"] <= 17)
+    # 4. 13~17세 자료 선택
+    age_filtered = merged[
+        merged["RIDAGEYR"].between(13, 17)
     ].copy()
 
-    # 결측값 제거
-    data = data.dropna(
-        subset=[
-            "PAQ706",
-            "DXDLALE",
-            "DXDRALE",
-            "DXDLLLE",
-            "DXDRLLE"
-        ]
-    )
+    age_count = len(age_filtered)
 
-    # 유효한 운동 일수만 선택
-    data = data[
-        data["PAQ706"].between(0, 7)
+    # 5. 운동 일수 유효 범위 선택
+    activity_filtered = age_filtered[
+        age_filtered["PAQ706"].between(0, 7)
     ].copy()
 
-    # 팔과 다리 네 부위 제지방량 합산
-    # 단위: kg
-    data["근육량 추정 지표(kg)"] = (
-        data["DXDLALE"] +
-        data["DXDRALE"] +
-        data["DXDLLLE"] +
-        data["DXDRLLE"]
+    activity_count = len(activity_filtered)
+
+    # 6. 분석에 필요한 값이 모두 있는 행만 선택
+    complete_data = activity_filtered.dropna(
+        subset=REQUIRED_COLUMNS
+    ).copy()
+
+    complete_count = len(complete_data)
+
+    # 7. 팔과 다리 제지방량 합산
+    # 단위: g -> kg
+    complete_data["근육량 추정 지표(kg)"] = (
+        complete_data["DXDLALE"]
+        + complete_data["DXDRALE"]
+        + complete_data["DXDLLLE"]
+        + complete_data["DXDRLLE"]
     ) / 1000
 
-    # 운동 그룹 분류
+    # 8. 운동 그룹 분류
     def classify(days):
 
         if days <= 1:
@@ -168,9 +169,35 @@ def load_data():
         else:
             return "운동 매우 많은 그룹 (6~7일)"
 
-    data["운동 그룹"] = data["PAQ706"].apply(classify)
+    complete_data["운동 그룹"] = (
+        complete_data["PAQ706"].apply(classify)
+    )
 
-    return data
+    # 전처리 과정 기록
+    preprocessing = pd.DataFrame({
+        "전처리 단계": [
+            "세 자료 결합 후",
+            "13~17세 선택 후",
+            "운동 일수 유효 범위 선택 후",
+            "결측값 제거 후"
+        ],
+        "남은 행 수": [
+            merged_count,
+            age_count,
+            activity_count,
+            complete_count
+        ]
+    })
+
+    return (
+        complete_data,
+        merged,
+        preprocessing,
+        merged_count,
+        age_count,
+        activity_count,
+        complete_count
+    )
 
 
 # -------------------------------------
@@ -180,7 +207,16 @@ def load_data():
 with st.spinner("CDC 데이터를 다운로드하고 분석하고 있습니다..."):
 
     try:
-        df = load_data()
+
+        (
+            df,
+            merged_data,
+            preprocessing,
+            merged_count,
+            age_count,
+            activity_count,
+            complete_count
+        ) = load_data()
 
     except Exception as e:
 
@@ -196,10 +232,143 @@ if len(df) < 5:
 
 
 # -------------------------------------
-# 1. 분석 데이터
+# 1. 데이터 개요
 # -------------------------------------
 
-st.subheader("1. 분석 데이터")
+st.subheader("1. 데이터 개요")
+
+col1, col2, col3, col4 = st.columns(4)
+
+col1.metric(
+    "최종 분석 인원",
+    f"{len(df):,}명"
+)
+
+col2.metric(
+    "데이터 열 수",
+    f"{len(df.columns)}개"
+)
+
+col3.metric(
+    "최종 결측값",
+    f"{int(df.isna().sum().sum()):,}개"
+)
+
+col4.metric(
+    "평균 운동 일수",
+    f"{df['PAQ706'].mean():.2f}일"
+)
+
+st.markdown("#### 사용한 데이터 열")
+
+column_info = pd.DataFrame({
+    "열 이름": df.columns,
+    "자료형": [
+        str(df[column].dtype)
+        for column in df.columns
+    ],
+    "결측값 개수": [
+        int(df[column].isna().sum())
+        for column in df.columns
+    ]
+})
+
+st.dataframe(
+    column_info,
+    use_container_width=True,
+    hide_index=True
+)
+
+st.caption(
+    "최종 분석 데이터의 열 이름, 자료형, 결측값 개수를 표시합니다."
+)
+
+
+# -------------------------------------
+# 2. 데이터 전처리 기록
+# -------------------------------------
+
+st.subheader("2. 데이터 전처리 과정")
+
+st.markdown(
+    """
+    다음 순서로 데이터를 정리했습니다.
+
+    1. 운동량, 체성분, 인구통계 자료를 개인 식별번호로 결합
+    2. 13~17세 청소년 자료 선택
+    3. 운동 일수가 0~7일인 자료 선택
+    4. 분석에 필요한 값이 비어 있는 행 제거
+    5. 팔과 다리의 제지방량을 합산하여 근육량 추정 지표 계산
+    """
+)
+
+st.markdown("#### 전처리 단계별 행 수")
+
+st.dataframe(
+    preprocessing,
+    use_container_width=True,
+    hide_index=True
+)
+
+removed_age = merged_count - age_count
+removed_activity = age_count - activity_count
+removed_missing = activity_count - complete_count
+total_removed = merged_count - complete_count
+
+c1, c2, c3 = st.columns(3)
+
+c1.metric(
+    "나이 조건으로 제외",
+    f"{removed_age:,}행"
+)
+
+c2.metric(
+    "운동 일수 조건으로 제외",
+    f"{removed_activity:,}행"
+)
+
+c3.metric(
+    "결측값으로 제외",
+    f"{removed_missing:,}행"
+)
+
+st.write(
+    f"**전체 제외 행 수:** {total_removed:,}행"
+)
+
+st.write(
+    f"**최종 분석 행 수:** {complete_count:,}행"
+)
+
+st.markdown("#### 결측값 처리 기준")
+
+missing_info = pd.DataFrame({
+    "변수": REQUIRED_COLUMNS,
+    "결측값 개수": [
+        int(activity_filtered[column].isna().sum())
+        for column in REQUIRED_COLUMNS
+    ]
+})
+
+st.dataframe(
+    missing_info,
+    use_container_width=True,
+    hide_index=True
+)
+
+st.markdown(
+    """
+    - 처리 기준: 분석에 필요한 운동 일수, 나이, 팔·다리 제지방량 중 하나라도 비어 있는 행을 제외했습니다.
+    - 이상치 처리: 이상치는 별도로 삭제하지 않았습니다. 실제 조사값의 범위를 임의로 바꾸지 않기 위해서입니다.
+    """
+)
+
+
+# -------------------------------------
+# 3. 분석 데이터 요약
+# -------------------------------------
+
+st.subheader("3. 분석 데이터 요약")
 
 col1, col2, col3 = st.columns(3)
 
@@ -218,16 +387,12 @@ col3.metric(
     f"{df['근육량 추정 지표(kg)'].mean():.2f}kg"
 )
 
-st.caption(
-    "13~17세 남녀 전체 자료를 합쳐 분석합니다."
-)
-
 
 # -------------------------------------
-# 2. 운동 그룹별 통계
+# 4. 운동 그룹별 통계
 # -------------------------------------
 
-st.subheader("2. 운동량에 따른 근육량 추정 지표")
+st.subheader("4. 운동량에 따른 근육량 추정 지표")
 
 group_order = [
     "운동 적은 그룹 (0~1일)",
@@ -265,10 +430,10 @@ st.dataframe(
 
 
 # -------------------------------------
-# 3. 운동 적은 그룹과 많은 그룹 비교
+# 5. 운동 적은 그룹과 많은 그룹 비교
 # -------------------------------------
 
-st.subheader("3. 운동을 적게 한 사람과 많이 한 사람 비교")
+st.subheader("5. 운동을 적게 한 사람과 많이 한 사람 비교")
 
 low = df[df["PAQ706"].between(0, 1)]
 high = df[df["PAQ706"].between(6, 7)]
@@ -298,25 +463,18 @@ if len(low) > 0 and len(high) > 0:
     def color_group(row):
 
         if "적게" in row["운동 그룹"]:
+            color = "background-color: #FDE2E2; color: #B91C1C"
+        else:
+            color = "background-color: #DBEAFE; color: #1D4ED8"
 
-            return [
-                "background-color: #FDE2E2; color: #B91C1C"
-            ] * len(row)
+        return [color] * len(row)
 
-        return [
-            "background-color: #DBEAFE; color: #1D4ED8"
-        ] * len(row)
-
-    styled_comparison = (
+    st.dataframe(
         comparison.style
         .apply(color_group, axis=1)
         .format({
             "평균 근육량 추정 지표(kg)": "{:.2f}"
-        })
-    )
-
-    st.dataframe(
-        styled_comparison,
+        }),
         use_container_width=True,
         hide_index=True
     )
@@ -344,10 +502,10 @@ else:
 
 
 # -------------------------------------
-# 4. 운동 일수별 평균 막대그래프
+# 6. 운동 일수별 평균 막대그래프
 # -------------------------------------
 
-st.subheader("4. 운동 일수별 평균 근육량 추정 지표")
+st.subheader("6. 운동 일수별 평균 근육량 추정 지표")
 
 daily_summary = (
     df.groupby("PAQ706")
@@ -429,10 +587,10 @@ st.plotly_chart(
 
 
 # -------------------------------------
-# 5. 그래프 아래 표
+# 7. 운동 일수별 표
 # -------------------------------------
 
-st.subheader("5. 운동 일수별 근육량 추정 지표 표")
+st.subheader("7. 운동 일수별 근육량 추정 지표 표")
 
 table_data = daily_summary[
     [
@@ -466,44 +624,33 @@ def color_daily_table(row):
     return [color] * len(row)
 
 
-styled_daily_table = (
+st.dataframe(
     table_data.style
     .apply(color_daily_table, axis=1)
     .format({
         "평균 근육량 추정 지표(kg)": "{:.2f}"
-    })
-)
-
-st.dataframe(
-    styled_daily_table,
+    }),
     use_container_width=True,
     hide_index=True
 )
 
-st.caption(
-    "빨간색은 운동 0~1일, 파란색은 운동 6~7일을 의미합니다."
-)
-
 
 # -------------------------------------
-# 6. 선형회귀분석
+# 8. 선형회귀분석
 # -------------------------------------
 
-st.subheader("6. 선형회귀분석")
+st.subheader("8. 선형회귀분석")
 
 st.markdown(
     """
     운동 일수를 독립변수(X), 근육량 추정 지표를 종속변수(Y)로 설정합니다.
-    운동 일수와 근육량 추정 지표 사이의 선형적인 관계를 분석합니다.
+    학습 데이터로 회귀식을 만들고 평가 데이터로 예측 성능을 확인합니다.
     """
 )
 
-# X: 운동 일수
-# Y: 근육량 추정 지표
 X = df["PAQ706"].to_numpy(dtype=float)
 Y = df["근육량 추정 지표(kg)"].to_numpy(dtype=float)
 
-# 무작위로 섞어 학습용 80%, 평가용 20% 분할
 rng = np.random.default_rng(42)
 
 indices = rng.permutation(len(df))
@@ -519,7 +666,7 @@ Y_train = Y[train_indices]
 X_test = X[test_indices]
 Y_test = Y[test_indices]
 
-# 선형회귀 모델 학습
+# 회귀 모델 학습
 slope, intercept = np.polyfit(
     X_train,
     Y_train,
@@ -529,14 +676,13 @@ slope, intercept = np.polyfit(
 # 평가 데이터 예측
 Y_pred = slope * X_test + intercept
 
-# 평가 지표 계산
+# 오차 계산
 mae = np.mean(np.abs(Y_test - Y_pred))
 
 rmse = np.sqrt(
     np.mean((Y_test - Y_pred) ** 2)
 )
 
-# 결정계수 R²
 ss_res = np.sum((Y_test - Y_pred) ** 2)
 ss_tot = np.sum((Y_test - np.mean(Y_test)) ** 2)
 
@@ -545,7 +691,7 @@ if ss_tot != 0:
 else:
     r2 = np.nan
 
-# 전체 데이터의 회귀선
+# 회귀 그래프
 x_line = np.linspace(
     X.min(),
     X.max(),
@@ -554,7 +700,6 @@ x_line = np.linspace(
 
 y_line = slope * x_line + intercept
 
-# 회귀 그래프
 regression_fig = go.Figure()
 
 regression_fig.add_trace(
@@ -567,11 +712,6 @@ regression_fig.add_trace(
             color="#60A5FA",
             opacity=0.55,
             size=7
-        ),
-        hovertemplate=(
-            "운동 일수: %{x}일<br>"
-            "근육량 추정 지표: %{y:.2f}kg"
-            "<extra></extra>"
         )
     )
 )
@@ -601,17 +741,15 @@ st.plotly_chart(
     use_container_width=True
 )
 
-# 회귀식
 equation_sign = "+" if intercept >= 0 else "-"
 
-st.markdown("### 회귀분석 결과")
+st.markdown("#### 회귀식")
 
 st.code(
     f"근육량 추정 지표 = {slope:.4f} × 운동 일수 "
     f"{equation_sign} {abs(intercept):.4f}"
 )
 
-# 결과 지표
 c1, c2, c3 = st.columns(3)
 
 c1.metric(
@@ -629,66 +767,63 @@ c3.metric(
     f"{rmse:.2f}kg"
 )
 
-st.markdown("### 회귀분석 해석")
+st.markdown("#### 회귀분석 해석")
 
 if slope > 0:
 
     st.write(
         f"회귀식의 기울기는 {slope:.4f}입니다. "
-        "운동 일수가 하루 증가할 때 근육량 추정 지표가 "
-        "평균적으로 증가하는 방향의 관계가 나타났습니다."
+        "운동 일수가 증가할수록 근육량 추정 지표가 증가하는 "
+        "방향의 관계가 나타났습니다."
     )
 
 elif slope < 0:
 
     st.write(
         f"회귀식의 기울기는 {slope:.4f}입니다. "
-        "운동 일수가 하루 증가할 때 근육량 추정 지표가 "
-        "평균적으로 감소하는 방향의 관계가 나타났습니다."
+        "운동 일수가 증가할수록 근육량 추정 지표가 감소하는 "
+        "방향의 관계가 나타났습니다."
     )
 
 else:
 
     st.write(
         "회귀식의 기울기가 0에 가까워 "
-        "운동 일수와 근육량 추정 지표 사이의 선형 관계가 거의 나타나지 않았습니다."
+        "선형적인 관계가 거의 나타나지 않았습니다."
     )
 
 st.caption(
-    "기울기는 학습 데이터로 계산했습니다. "
     "R², MAE, RMSE는 평가 데이터에서 계산했습니다. "
-    "R²가 낮거나 음수일 수도 있으며, 이는 예측 성능이 낮다는 의미입니다."
+    "이 결과는 관계를 보여줄 뿐 운동이 근육량을 증가시킨다는 원인을 증명하지 않습니다."
 )
 
 
 # -------------------------------------
-# 7. 분석 결과 및 한계
+# 9. 분석 결과와 한계
 # -------------------------------------
 
-st.subheader("7. 분석 결과 및 한계")
+st.subheader("9. 분석 결과 및 한계")
 
 st.markdown(
     """
     이번 분석에서는 운동 일수와 근육량 추정 지표의 관계를
-    평균 비교와 선형회귀분석으로 확인했습니다.
+    그룹별 평균 비교와 선형회귀분석으로 확인했습니다.
 
-    회귀분석은 두 변수 사이의 선형적인 관계를 살펴보는 방법입니다.
-    하지만 운동 일수 외에도 나이, 성장 상태, 식습관 등 여러 요인이
-    근육량에 영향을 줄 수 있습니다.
+    하지만 운동 일수 외에도 나이, 성장 상태, 식습관, 운동 강도 등
+    다양한 요인이 근육량 추정 지표에 영향을 줄 수 있습니다.
 
-    따라서 이 분석만으로 운동이 근육량 차이의 직접적인 원인이라고
-    단정할 수는 없습니다.
+    따라서 운동 일수만으로 근육량 차이의 원인을 모두 설명할 수는 없습니다.
     """
 )
 
 
 # -------------------------------------
-# 8. 데이터 출처
+# 10. 데이터 출처
 # -------------------------------------
 
 st.divider()
 
-st.subheader("8. 데이터 출처 및 주의사항")
+st.subheader("10. 데이터 출처 및 주의사항")
 
 st.markdown("""
 **자료 출처**
@@ -706,8 +841,13 @@ st.markdown("""
 - RIDAGEYR: 나이
 
 **근육량 추정 지표 계산**
-팔과 다리 네 부위의 제지방량을 합산한 뒤 kg 단위로 변환했습니다.
+왼팔, 오른팔, 왼다리, 오른다리의 제지방량을 합산한 뒤 kg 단위로 변환했습니다.
 
-이 값은 근육량을 추정하기 위한 지표이며 순수 골격근량과 완전히 같지는 않습니다.
-또한 이번 분석은 남녀를 구분하지 않고 전체 자료를 합쳐 계산했습니다.
+이 값은 순수 골격근량과 같지 않으며 근육량을 추정하기 위한 지표입니다.
+남녀를 구분하지 않고 분석했습니다.
 """)
+
+st.caption(
+    "이 앱의 분석 결과는 조사 자료에 나타난 관계를 보여주며, "
+    "모든 사람에게 동일하게 적용되는 결과는 아닙니다."
+)
