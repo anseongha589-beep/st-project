@@ -17,7 +17,7 @@ st.set_page_config(
 
 st.title("💪 운동 시간은 많을수록 정말 좋은가?")
 st.write(
-    "운동 일수에 따라 청소년의 근육량 추정 지표가 "
+    "주간 운동 횟수에 따라 청소년의 근육량 추정 지표가 "
     "어떻게 달라지는지 알아봅니다."
 )
 
@@ -58,7 +58,7 @@ METRIC_COLUMN = "근육량 추정 지표(kg)"
 
 KOREAN_NAMES = {
     "SEQN": "개인 식별번호",
-    "PAQ706": "운동 일수",
+    "PAQ706": "주간 운동 횟수",
     "RIDAGEYR": "나이",
     "DXDLALE": "왼팔 제지방량",
     "DXDRALE": "오른팔 제지방량",
@@ -191,16 +191,16 @@ def load_data():
     def classify(days):
 
         if days <= 1:
-            return "운동 적은 그룹 (0~1일)"
+            return "운동 적은 그룹 (주 0~1회)"
 
         elif days <= 3:
-            return "운동 중간 그룹 (2~3일)"
+            return "운동 중간 그룹 (주 2~3회)"
 
         elif days <= 5:
-            return "운동 많은 그룹 (4~5일)"
+            return "운동 많은 그룹 (주 4~5회)"
 
         else:
-            return "운동 매우 많은 그룹 (6~7일)"
+            return "운동 매우 많은 그룹 (주 6~7회)"
 
     complete_data["운동 그룹"] = (
         complete_data["PAQ706"].apply(classify)
@@ -211,7 +211,7 @@ def load_data():
         "전처리 단계": [
             "세 자료 결합 후",
             "13~17세 선택 후",
-            "운동 일수 유효 범위 선택 후",
+            "주간 운동 횟수 유효 범위 선택 후",
             "결측값 제거 후"
         ],
         "남은 행 수": [
@@ -288,8 +288,8 @@ col3.metric(
 )
 
 col4.metric(
-    "평균 운동 일수",
-    f"{df['PAQ706'].mean():.2f}일"
+    "평균 주간 운동 횟수",
+    f"주 {df['PAQ706'].mean():.2f}회"
 )
 
 st.subheader("사용한 데이터 열")
@@ -334,7 +334,7 @@ st.write(
     """
 1. 운동량, 체성분, 인구통계 자료를 개인 식별번호로 결합했습니다.
 2. 13~17세 청소년 자료를 선택했습니다.
-3. 운동 일수가 0~7일인 자료를 선택했습니다.
+3. 주간 운동 횟수가 0~7회인 자료를 선택했습니다.
 4. 분석에 필요한 값이 비어 있는 행을 제거했습니다.
 5. 팔과 다리의 제지방량을 합산해 근육량 추정 지표를 계산했습니다.
     """
@@ -361,7 +361,7 @@ c1.metric(
 )
 
 c2.metric(
-    "운동 일수 조건으로 제외",
+    "운동 횟수 조건으로 제외",
     f"{removed_activity:,}행"
 )
 
@@ -405,8 +405,8 @@ col1.metric(
 )
 
 col2.metric(
-    "평균 운동 일수",
-    f"{df['PAQ706'].mean():.2f}일"
+    "평균 주간 운동 횟수",
+    f"주 {df['PAQ706'].mean():.2f}회"
 )
 
 col3.metric(
@@ -422,10 +422,10 @@ col3.metric(
 st.header("4. 운동 그룹별 평균 비교")
 
 group_order = [
-    "운동 적은 그룹 (0~1일)",
-    "운동 중간 그룹 (2~3일)",
-    "운동 많은 그룹 (4~5일)",
-    "운동 매우 많은 그룹 (6~7일)"
+    "운동 적은 그룹 (주 0~1회)",
+    "운동 중간 그룹 (주 2~3회)",
+    "운동 많은 그룹 (주 4~5회)",
+    "운동 매우 많은 그룹 (주 6~7회)"
 ]
 
 summary = (
@@ -460,13 +460,13 @@ st.dataframe(
 
 
 # =====================================
-# 10. 운동 일수별 평균 막대그래프
+# 10. 운동 횟수별 평균 막대그래프
 # =====================================
 
-st.header("5. 운동 일수별 평균 근육량 추정 지표")
+st.header("5. 주간 운동 횟수별 평균 근육량 추정 지표")
 
 st.write(
-    "막대가 높을수록 해당 운동 일수 그룹의 평균 "
+    "막대가 높을수록 해당 운동 횟수 그룹의 평균 "
     "근육량 추정 지표가 높다는 뜻입니다."
 )
 
@@ -484,8 +484,8 @@ daily_summary = (
 
 # 인원수를 정수로 변환
 daily_summary["인원수"] = daily_summary["인원수"].astype(int)
-daily_summary["운동 일수"] = (
-    daily_summary["PAQ706"].astype(int).astype(str) + "일"
+daily_summary["운동 횟수"] = (
+    "주 " + daily_summary["PAQ706"].astype(int).astype(str) + "회"
 )
 
 # 색상 지정
@@ -510,7 +510,7 @@ fig = go.Figure()
 
 fig.add_trace(
     go.Bar(
-        x=daily_summary["운동 일수"],
+        x=daily_summary["운동 횟수"],
         y=daily_summary["평균"],
         marker=dict(
             color=bar_colors,
@@ -530,7 +530,7 @@ fig.add_trace(
             daily_summary["표준편차"]
         ]),
         hovertemplate=(
-            "<b>운동 일수: %{x}</b><br>"
+            "<b>운동 횟수: %{x}</b><br>"
             "평균 근육량 추정 지표: %{y:.2f}kg<br>"
             "조사 인원: %{customdata[0]:.0f}명<br>"
             "표준편차: %{customdata[1]:.2f}kg"
@@ -542,19 +542,19 @@ fig.add_trace(
 fig.update_layout(
     height=550,
     title=dict(
-        text="운동 일수에 따른 평균 비교",
+        text="주간 운동 횟수에 따른 평균 비교",
         font=dict(size=23)
     ),
     xaxis=dict(
         title=dict(
-            text="일주일 중 하루 60분 이상 운동한 날",
+            text="일주일 중 하루 60분 이상 운동한 횟수",
             font=dict(size=15)
         ),
         tickfont=dict(size=14),
         categoryorder="array",
         categoryarray=[
-            "0일", "1일", "2일", "3일",
-            "4일", "5일", "6일", "7일"
+            "주 0회", "주 1회", "주 2회", "주 3회",
+            "주 4회", "주 5회", "주 6회", "주 7회"
         ]
     ),
     yaxis=dict(
@@ -587,13 +587,13 @@ st.plotly_chart(
 
 st.markdown(
     """
-    🔴 **빨간색:** 운동 적은 그룹 (0~1일)
+    🔴 **빨간색:** 운동 적은 그룹 (주 0~1회)
 
-    ⚪ **회색:** 운동 중간 그룹 (2~3일)
+    ⚪ **회색:** 운동 중간 그룹 (주 2~3회)
 
-    🔵 **연한 파란색:** 운동 많은 그룹 (4~5일)
+    🔵 **연한 파란색:** 운동 많은 그룹 (주 4~5회)
 
-    🔵 **진한 파란색:** 운동 매우 많은 그룹 (6~7일)
+    🔵 **진한 파란색:** 운동 매우 많은 그룹 (주 6~7회)
     """
 )
 
@@ -616,8 +616,8 @@ if len(low) > 0 and len(high) > 0:
 
     comparison = pd.DataFrame({
         "운동 그룹": [
-            "운동 적게 한 사람 (0~1일)",
-            "운동 많이 한 사람 (6~7일)"
+            "운동 적게 한 사람 (주 0~1회)",
+            "운동 많이 한 사람 (주 6~7회)"
         ],
         "인원수": [
             len(low),
@@ -732,13 +732,13 @@ else:
 
 
 # =====================================
-# 12. 운동 일수별 표
+# 12. 운동 횟수별 표
 # =====================================
 
-st.header("7. 운동 일수별 근육량 추정 지표 표")
+st.header("7. 주간 운동 횟수별 근육량 추정 지표 표")
 
 table_data = daily_summary[
-    ["운동 일수", "인원수", "평균"]
+    ["운동 횟수", "인원수", "평균"]
 ].copy()
 
 table_data = table_data.rename(
@@ -750,7 +750,9 @@ table_data = table_data.rename(
 
 def color_daily_table(row):
 
-    days = int(row["운동 일수"].replace("일", ""))
+    # '주 3회'에서 숫자만 추출
+    days_str = str(row["운동 횟수"]).replace("주 ", "").replace("회", "")
+    days = int(days_str)
 
     if days <= 1:
         color = "background-color: #FEE2E2; color: #991B1B"
@@ -782,7 +784,7 @@ st.dataframe(
 st.header("8. 선형회귀분석")
 
 st.write(
-    "운동 일수를 독립변수(X), 근육량 추정 지표를 "
+    "주간 운동 횟수를 독립변수(X), 근육량 추정 지표를 "
     "종속변수(Y)로 설정했습니다. 점 하나는 학생 1명이며, "
     "검은색 실선은 전체 추세선입니다."
 )
@@ -865,7 +867,7 @@ regression_fig.add_trace(
         ),
         customdata=X.astype(int),
         hovertemplate=(
-            "운동 일수: %{customdata}일<br>"
+            "주간 운동 횟수: 주 %{customdata}회<br>"
             "근육량 추정 지표: %{y:.2f}kg"
             "<extra></extra>"
         )
@@ -888,18 +890,18 @@ regression_fig.add_trace(
 
 regression_fig.update_layout(
     title=dict(
-        text="운동 일수와 근육량 추정 지표의 관계 (개인 분포 및 추세선)",
+        text="주간 운동 횟수와 근육량 추정 지표의 관계 (개인 분포 및 추세선)",
         font=dict(size=22)
     ),
     height=550,
-    xaxis_title="일주일 중 하루 60분 이상 운동한 날",
+    xaxis_title="일주일 중 하루 60분 이상 운동한 횟수",
     yaxis_title="근육량 추정 지표(kg)",
     plot_bgcolor="white",
     paper_bgcolor="white",
     xaxis=dict(
         tickmode="array",
         tickvals=[0, 1, 2, 3, 4, 5, 6, 7],
-        ticktext=["0일", "1일", "2일", "3일", "4일", "5일", "6일", "7일"],
+        ticktext=["주 0회", "주 1회", "주 2회", "주 3회", "주 4회", "주 5회", "주 6회", "주 7회"],
         range=[-0.5, 7.5],
         gridcolor="#E5E7EB"
     ),
@@ -923,7 +925,7 @@ equation_sign = "+" if intercept >= 0 else "-"
 st.subheader("회귀식")
 
 st.code(
-    f"근육량 추정 지표 = {slope:.4f} × 운동 일수 "
+    f"근육량 추정 지표 = {slope:.4f} × 주간 운동 횟수 "
     f"{equation_sign} {abs(intercept):.4f}"
 )
 
@@ -950,7 +952,7 @@ if slope > 0:
 
     st.write(
         f"회귀식의 기울기는 {slope:.4f}입니다. "
-        "운동 일수가 증가할수록 근육량 추정 지표가 "
+        "주간 운동 횟수가 증가할수록 근육량 추정 지표가 "
         "증가하는 방향의 관계가 나타났습니다."
     )
 
@@ -958,7 +960,7 @@ elif slope < 0:
 
     st.write(
         f"회귀식의 기울기는 {slope:.4f}입니다. "
-        "운동 일수가 증가할수록 근육량 추정 지표가 "
+        "주간 운동 횟수가 증가할수록 근육량 추정 지표가 "
         "감소하는 방향의 관계가 나타났습니다."
     )
 
@@ -983,13 +985,13 @@ st.header("9. 분석 결과 및 한계")
 
 st.write(
     """
-    이번 분석에서는 운동 일수와 근육량 추정 지표의 관계를
+    이번 분석에서는 주간 운동 횟수와 근육량 추정 지표의 관계를
     그룹별 평균 비교와 선형회귀분석으로 확인했습니다.
 
-    하지만 운동 일수 외에도 나이, 성장 상태, 식습관,
+    하지만 운동 횟수 외에도 나이, 성장 상태, 식습관,
     운동 강도 등 다양한 요인이 영향을 줄 수 있습니다.
 
-    따라서 운동 일수만으로 근육량 차이의 원인을
+    따라서 운동 횟수만으로 근육량 차이의 원인을
     모두 설명할 수는 없습니다.
     """
 )
@@ -1011,7 +1013,7 @@ st.markdown("""
 - 인구통계 자료: Demographics (DEMO_J)
 
 **사용한 변수**
-- PAQ706: 일주일 중 하루 60분 이상 운동한 날의 수
+- PAQ706: 일주일 중 하루 60분 이상 운동한 날의 수 (주간 운동 횟수)
 - DXDLALE: 왼팔 제지방량
 - DXDRALE: 오른팔 제지방량
 - DXDLLLE: 왼쪽 다리 제지방량
