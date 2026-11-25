@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -149,10 +148,11 @@ def load_data():
 
     age_count = len(age_filtered)
 
-    # 운동 일수 0~7일 선택
+    # 운동 일수 0~7일 선택 (부동소수점 오차 방지를 위해 반올림 후 정수 처리)
     activity_filtered = age_filtered[
         age_filtered["PAQ706"].between(0, 7)
     ].copy()
+    activity_filtered["PAQ706"] = activity_filtered["PAQ706"].round().astype(int)
 
     activity_count = len(activity_filtered)
 
@@ -313,6 +313,7 @@ column_info["열 이름"] = column_info["열 이름"].replace(
 column_info["자료형"] = column_info["자료형"].replace({
     "float64": "숫자형",
     "int64": "정수형",
+    "int32": "정수형",
     "object": "문자형"
 })
 
@@ -331,11 +332,11 @@ st.header("2. 데이터 전처리 과정")
 
 st.write(
     """
-    1. 운동량, 체성분, 인구통계 자료를 개인 식별번호로 결합했습니다.
-    2. 13~17세 청소년 자료를 선택했습니다.
-    3. 운동 일수가 0~7일인 자료를 선택했습니다.
-    4. 분석에 필요한 값이 비어 있는 행을 제거했습니다.
-    5. 팔과 다리의 제지방량을 합산해 근육량 추정 지표를 계산했습니다.
+1. 운동량, 체성분, 인구통계 자료를 개인 식별번호로 결합했습니다.
+2. 13~17세 청소년 자료를 선택했습니다.
+3. 운동 일수가 0~7일인 자료를 선택했습니다.
+4. 분석에 필요한 값이 비어 있는 행을 제거했습니다.
+5. 팔과 다리의 제지방량을 합산해 근육량 추정 지표를 계산했습니다.
     """
 )
 
@@ -440,6 +441,8 @@ summary = (
     .reset_index()
 )
 
+summary["인원수"] = summary["인원수"].astype(int)
+
 summary = summary.rename(
     columns={
         "평균": "평균 근육량 추정 지표(kg)",
@@ -478,6 +481,7 @@ daily_summary = (
     .reset_index()
 )
 
+daily_summary["인원수"] = daily_summary["인원수"].astype(int)
 daily_summary["운동 일수"] = (
     daily_summary["PAQ706"].astype(int).astype(str) + "일"
 )
@@ -636,6 +640,7 @@ if len(low) > 0 and len(high) > 0:
             axis=1
         )
         .format({
+            "인원수": "{:,}",
             "평균 근육량 추정 지표(kg)": "{:.2f}"
         }),
         use_container_width=True,
@@ -760,6 +765,7 @@ st.dataframe(
     table_data.style
     .apply(color_daily_table, axis=1)
     .format({
+        "조사 인원(명)": "{:,}",
         "평균 근육량 추정 지표(kg)": "{:.2f}"
     }),
     use_container_width=True,
@@ -768,14 +774,15 @@ st.dataframe(
 
 
 # =====================================
-# 13. 선형회귀분석
+# 13. 선형회귀분석 (보기 쉽게 개선)
 # =====================================
 
 st.header("8. 선형회귀분석")
 
 st.write(
     "운동 일수를 독립변수(X), 근육량 추정 지표를 "
-    "종속변수(Y)로 설정했습니다."
+    "종속변수(Y)로 설정했습니다. 점 하나는 학생 1명이며, "
+    "초록색 점선은 전체 추세선입니다."
 )
 
 X = df["PAQ706"].to_numpy(dtype=float)
@@ -827,21 +834,36 @@ x_line = np.linspace(
 
 y_line = slope * x_line + intercept
 
+# 점들이 겹치지 않도록 가로 방향에 살짝 간격(jitter) 추가
+jitter = rng.uniform(-0.18, 0.18, size=len(X))
+X_jittered = X + jitter
+
+# 그룹별 점 색상 지정 (위 막대그래프와 색상 통일)
+point_colors = [
+    "#EF4444" if day <= 1 else
+    "#A1A1AA" if day <= 3 else
+    "#7DD3FC" if day <= 5 else
+    "#2563EB"
+    for day in X
+]
+
 regression_fig = go.Figure()
 
 regression_fig.add_trace(
     go.Scatter(
-        x=X,
+        x=X_jittered,
         y=Y,
         mode="markers",
-        name="조사 데이터",
+        name="학생 개별 데이터 (1명 = 점 1개)",
         marker=dict(
-            color="#60A5FA",
-            opacity=0.35,
-            size=7
+            color=point_colors,
+            opacity=0.65,
+            size=8,
+            line=dict(color="white", width=0.5)
         ),
+        customdata=X.astype(int),
         hovertemplate=(
-            "운동 일수: %{x}일<br>"
+            "운동 일수: %{customdata}일<br>"
             "근육량 추정 지표: %{y:.2f}kg"
             "<extra></extra>"
         )
@@ -853,17 +875,18 @@ regression_fig.add_trace(
         x=x_line,
         y=y_line,
         mode="lines",
-        name="회귀 직선",
+        name="전체 평균 추세선 (회귀 직선)",
         line=dict(
-            color="#EF4444",
-            width=4
+            color="#111827",
+            width=4,
+            dash="solid"
         )
     )
 )
 
 regression_fig.update_layout(
     title=dict(
-        text="운동 일수와 근육량 추정 지표의 관계",
+        text="운동 일수와 근육량 추정 지표의 관계 (개인 분포 및 추세선)",
         font=dict(size=22)
     ),
     height=550,
@@ -872,7 +895,10 @@ regression_fig.update_layout(
     plot_bgcolor="white",
     paper_bgcolor="white",
     xaxis=dict(
-        dtick=1,
+        tickmode="array",
+        tickvals=[0, 1, 2, 3, 4, 5, 6, 7],
+        ticktext=["0일", "1일", "2일", "3일", "4일", "5일", "6일", "7일"],
+        range=[-0.5, 7.5],
         gridcolor="#E5E7EB"
     ),
     yaxis=dict(
@@ -880,7 +906,8 @@ regression_fig.update_layout(
     ),
     legend=dict(
         orientation="h",
-        y=1.1
+        y=1.12,
+        font=dict(size=14)
     )
 )
 
